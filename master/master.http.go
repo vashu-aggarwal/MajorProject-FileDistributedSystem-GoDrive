@@ -248,15 +248,7 @@ func handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		// 🔵 CACHE INVALIDATION (ADD HERE)
 		FileCache.Delete(filename)
 		log.Printf("🗑️ CACHE DELETE | File: %s | CacheSize: %d", filename, FileCache.Size())
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Deleted '%s' from the system.\n", filename)
-	} else {
-		log.Println("Couldn't delete file")
-		http.Error(w, "Failed to delete file", http.StatusInternalServerError)
-	}
-}
-
-// func handleFileUpdate(w http.ResponseWriter, r *http.Request) {
+p.ResponseWriter, r *http.Request) {
 
 // 	if r.Method != http.MethodPost {
 // 		http.Error(w, "Only POST requests allowed in this route", http.StatusBadRequest)
