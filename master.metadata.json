@@ -1,0 +1,12 @@
+{
+  "Test.txt": {
+    "0": {
+      "ChunkHash": "3639efcd08abb273b1619e82e78c29a7df02c1051b1820e99fc395dcaa3326b8",
+      "SlaveNodeList": [
+        "6003",
+        "6002",
+        "5001"
+      ]
+    }
+  }
+}
