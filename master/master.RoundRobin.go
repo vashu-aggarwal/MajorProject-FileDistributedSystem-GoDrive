@@ -2,11 +2,8 @@ package master
 
 import (
 	"godrive/config"
-	"log"
 	"sync"
 )
-
-/* ---------- ROUND ROBIN ---------- */
 
 type RoundRobinNodeSelector struct {
 	mutex     sync.Mutex
@@ -15,22 +12,16 @@ type RoundRobinNodeSelector struct {
 }
 
 func NewRoundRobinSelector(nodes []config.Node) *RoundRobinNodeSelector {
-	log.Println("🎯 Node Selection Algorithm: ROUND ROBIN")
 	return &RoundRobinNodeSelector{
 		nodeIndex: 0,
 		nodeList:  nodes,
 	}
 }
 
-func (r *RoundRobinNodeSelector) GiveNode() config.Node {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	node := r.nodeList[r.nodeIndex]
-	r.nodeIndex = (r.nodeIndex + 1) % len(r.nodeList)
-
-	// Log which node was selected
-	log.Printf("📦 RoundRobin selected node: %s:%s\n", node.Host, node.Port)
-
+func (R *RoundRobinNodeSelector) GiveNode() config.Node {
+	R.mutex.Lock()
+	defer R.mutex.Unlock()
+	node := R.nodeList[R.nodeIndex]
+	R.nodeIndex = (R.nodeIndex + 1) % len(R.nodeList)
 	return node
 }

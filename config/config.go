@@ -44,5 +44,8 @@ func LoadConfig() {
 	}
 	log.Println("Config Loaded Successfully!")
 }
+<<<<<<< HEAD
+=======
 
 
+>>>>>>> origin/main

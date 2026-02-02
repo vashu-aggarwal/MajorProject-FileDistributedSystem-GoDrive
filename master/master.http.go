@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"godrive/config"
+	"godrive/master/cache"
 	"log"
 	"net/http"
 	"sync"
@@ -14,26 +15,32 @@ type uploadedFile struct {
 	Content string `json:"content"`
 }
 
-var MyNodeSelector NodeSelector
+var MyNodeSelector *RoundRobinNodeSelector
+var FileCache cache.Cache
 
 func StartMasterHttp() {
 	port := config.ReadConfig.Master.HttpPort
 	fullAddress := fmt.Sprintf(":%d", port)
-
 	MyNodeSelector = NewRoundRobinSelector(config.ReadConfig.SlaveNodes)
-	// MyNodeSelector = NewRandomNodeSelector(config.ReadConfig.SlaveNodes)
-	// MyNodeSelector = NewPowerOfTwoSelector(config.ReadConfig.SlaveNodes)
+
+	FileCache = cache.NewLRUCache(5) // change policy here
+	log.Println(" Cache Initialized: LRU Cache | Capacity = 5")
+
+	http.HandleFunc("/", healthCheck)
+	http.HandleFunc("/upload", handleFileUpload)
+	http.HandleFunc("/download", handleFileDownload)
+	// http.HandleFunc("/update", handleFileUpdate)
+	http.HandleFunc("/delete", handleFileDelete)
+
 	log.Printf(`
 ╔════════════════════════════════════════╗
-║ HTTP SERVER STARTED ON PORT %v         ║
+║   HTTP SERVER STARTED ON PORT %v     ║
 ╚════════════════════════════════════════╝`, port)
-
 	err := http.ListenAndServe(fullAddress, nil)
 	if err != nil {
 		log.Fatal("HTTP server crashed")
 	}
 }
-
 func DeleteFileIfQuoramFails(filename string) {
 
 	metadata.mu.Lock()
@@ -126,6 +133,12 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No key found", http.StatusBadRequest)
 		return
 	}
+	//cache check
+	if cachedData, ok := FileCache.Get(filename); ok {
+		log.Println("⚡ Cache HIT for", filename)
+		w.Write([]byte(cachedData))
+		return
+	}
 	indexToFilechunkMap, exists := metadata.Chunks[filename]
 	if !exists {
 		http.Error(w, "No such file present in the system.", http.StatusNotFound)
@@ -159,6 +172,10 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	log.Printf("✅ Master: Download %v sucessfully\n", downloadedFile.Name)
 	log.Println("────────────────────────────────────────")
 	createdFileAfterMerge := MergeChunksToFile(downloadedFile)
+	// 🔵 CACHE PUT (ADD HERE)
+	FileCache.Put(filename, createdFileAfterMerge.Content)
+	log.Printf(" CACHE PUT | File: %s | CacheSize: %d\n", filename, FileCache.Size())
+
 	createdFileJson, err := json.Marshal(createdFileAfterMerge)
 	if err != nil {
 		log.Println("Error")
@@ -228,15 +245,10 @@ func handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		delete(metadata.Chunks, filename)
 		metadata.mu.Unlock()
 		SaveMetaDataToFile()
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Deleted '%s' from the system.\n", filename)
-	} else {
-		log.Println("Couldn't delete file")
-		http.Error(w, "Failed to delete file", http.StatusInternalServerError)
-	}
-}
-
-// func handleFileUpdate(w http.ResponseWriter, r *http.Request) {
+		// 🔵 CACHE INVALIDATION (ADD HERE)
+		FileCache.Delete(filename)
+		log.Printf("🗑️ CACHE DELETE | File: %s | CacheSize: %d", filename, FileCache.Size())
+p.ResponseWriter, r *http.Request) {
 
 // 	if r.Method != http.MethodPost {
 // 		http.Error(w, "Only POST requests allowed in this route", http.StatusBadRequest)

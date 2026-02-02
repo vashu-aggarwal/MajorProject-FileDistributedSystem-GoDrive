@@ -10,7 +10,10 @@ master:
   read_quorum: 2
   write_quorum: 2
 
+<<<<<<< HEAD
+=======
   
+>>>>>>> origin/main
 slaveDataNodes:
   - host: "127.0.0.1"
     port: 6001
@@ -39,3 +42,7 @@ backupNodes:
   - host: "127.0.0.1"
     port: 5002
 
+<<<<<<< HEAD
+   
+=======
+>>>>>>> origin/main

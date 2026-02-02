@@ -93,21 +93,3 @@ func updateChunkHashInMetaData(fileName string, chunkHash string, ChunkIndex int
 
 	SaveMetaDataToFile()
 }
-
-
-func getNodeLoad(port string) int {
-	metadata.mu.Lock()
-	defer metadata.mu.Unlock()
-
-	count := 0
-	for _, chunkMap := range metadata.Chunks {
-		for _, chunkInfo := range chunkMap {
-			for _, p := range chunkInfo.SlaveNodeList {
-				if p == port {
-					count++
-				}
-			}
-		}
-	}
-	return count
-}
