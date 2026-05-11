@@ -52,7 +52,7 @@ func loadMetaDataFromFile() {
 	json.Unmarshal(file, &metadata.Chunks)
 }
 
-func addChunkInfoToMetaData(fileName string, chunkHash string, ChunkIndex int, port string) {
+func addChunkInfoToMetaData(fileName string, chunkHash string, ChunkIndex int, address string) {
 
 	metadata.mu.Lock()
 	defer metadata.mu.Unlock()
@@ -67,23 +67,23 @@ func addChunkInfoToMetaData(fileName string, chunkHash string, ChunkIndex int, p
 
 	obtainedChunkInfo, exists := metadata.Chunks[fileName][ChunkIndex]
 	if exists {
-		for _, portItr := range obtainedChunkInfo.SlaveNodeList {
-			if portItr == port {
+		for _, addrItr := range obtainedChunkInfo.SlaveNodeList {
+			if addrItr == address {
 				return
 			}
 		}
-		obtainedChunkInfo.SlaveNodeList = append(obtainedChunkInfo.SlaveNodeList, port)
+		obtainedChunkInfo.SlaveNodeList = append(obtainedChunkInfo.SlaveNodeList, address)
 
 	} else {
 		metadata.Chunks[fileName][ChunkIndex] = &ChunkInfo{
 			ChunkHash:     chunkHash,
-			SlaveNodeList: []string{port},
+			SlaveNodeList: []string{address},
 		}
 	}
 	SaveMetaDataToFile()
 }
 
-func updateChunkHashInMetaData(fileName string, chunkHash string, ChunkIndex int, port string) {
+func updateChunkHashInMetaData(fileName string, chunkHash string, ChunkIndex int, address string) {
 
 	metadata.mu.Lock()
 	defer metadata.mu.Unlock()
@@ -93,7 +93,7 @@ func updateChunkHashInMetaData(fileName string, chunkHash string, ChunkIndex int
 
 	SaveMetaDataToFile()
 }
-func getNodeLoad(port string) int {
+func getNodeLoad(address string) int {
 	metadata.mu.Lock()
 	defer metadata.mu.Unlock()
 
@@ -101,7 +101,7 @@ func getNodeLoad(port string) int {
 	for _, chunkMap := range metadata.Chunks {
 		for _, chunkInfo := range chunkMap {
 			for _, p := range chunkInfo.SlaveNodeList {
-				if p == port {
+				if p == address {
 					count++
 				}
 			}

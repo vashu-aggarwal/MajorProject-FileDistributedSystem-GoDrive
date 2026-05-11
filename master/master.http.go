@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"sync"
-	"time"
 )
 
 type uploadedFile struct {
@@ -54,7 +53,6 @@ func StartMasterHttp() {
 
 	MyNodeSelector = NewLeastNodeSelector(config.ReadConfig.SlaveNodes)
 	CurrentCache = InitCache("lru", 100)
-	Metrics.Init(AlgoConfig.CacheAlgorithm, AlgoConfig.NodeSelectorAlgo)
 
 	http.HandleFunc("/", corsMiddleware(healthCheck))
 	http.HandleFunc("/upload", corsMiddleware(handleFileUpload))
@@ -63,8 +61,6 @@ func StartMasterHttp() {
 	http.HandleFunc("/update", corsMiddleware(handleFileUpdate))
 	http.HandleFunc("/config/algorithms", corsMiddleware(handleAlgorithmConfig))
 	http.HandleFunc("/config/cache-status", corsMiddleware(handleCacheStatus))
-	http.HandleFunc("/metrics/performance", corsMiddleware(handlePerformanceMetrics))
-	http.HandleFunc("/metrics/reset", corsMiddleware(handleMetricsReset))
 
 	log.Printf(`
 ╔════════════════════════════════════════╗
@@ -121,13 +117,6 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFileUpload(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	success := false
-	bytesTransferred := 0
-	defer func() {
-		Metrics.RecordRequest("upload", success, time.Since(startTime), bytesTransferred)
-	}()
-
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST requests allowed in this route", http.StatusBadRequest)
 		return
@@ -190,7 +179,6 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "FileName or content is empty", http.StatusBadRequest)
 		return
 	}
-	bytesTransferred = len([]byte(incomingFile.Content))
 	if _, exists := metadata.Chunks[incomingFile.Name]; exists {
 		http.Error(w, "File already present in system. Delete file first to use upload or use 'update'.", http.StatusConflict)
 		return
@@ -200,7 +188,6 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		log.Println("────────────────────────────────────────")
 		log.Printf("✅  Master: Splitted file into %v chunks", len(createdFile.Chunks))
 		log.Println("────────────────────────────────────────")
-		success = true
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(fmt.Sprintf("Accepted file: '%v'.", incomingFile.Name)))
 	} else {
@@ -213,13 +200,6 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFileDownload(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	success := false
-	bytesTransferred := 0
-	defer func() {
-		Metrics.RecordRequest("download", success, time.Since(startTime), bytesTransferred)
-	}()
-
 	if r.Method != http.MethodGet {
 		http.Error(w, "Only GET requests allowed in this route", http.StatusBadRequest)
 		return
@@ -262,13 +242,11 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	log.Printf("✅ Master: Download %v sucessfully\n", downloadedFile.Name)
 	log.Println("────────────────────────────────────────")
 	createdFileAfterMerge := MergeChunksToFile(downloadedFile)
-	bytesTransferred = len([]byte(createdFileAfterMerge.Content))
 	createdFileJson, err := json.Marshal(createdFileAfterMerge)
 	if err != nil {
 		log.Println("Error")
 		return
 	}
-	success = true
 	w.Write(createdFileJson)
 }
 func getChunk(index int, chunkInfo *ChunkInfo, channelToSendChunk chan FileChunk, wg *sync.WaitGroup) {
@@ -282,7 +260,6 @@ func getChunk(index int, chunkInfo *ChunkInfo, channelToSendChunk chan FileChunk
 
 	if cachedData, found := cache.Get(chunkHash); found {
 		log.Printf("🟡 Cache HIT for chunk: %s\n", chunkHash)
-		Metrics.RecordCacheResult(true)
 		channelToSendChunk <- FileChunk{
 			Index: index,
 			Data:  []byte(cachedData),
@@ -292,12 +269,10 @@ func getChunk(index int, chunkInfo *ChunkInfo, channelToSendChunk chan FileChunk
 	}
 
 	// Cache miss: fetch from slave
-	Metrics.RecordCacheResult(false)
 	for ind := 0; ind < len(slaveNodeList); ind++ {
 		obtainedFileChunk, err := RequestChunkFromSlave(slaveNodeList[ind], chunkHash)
 		if err == nil {
 			obtainedFileChunk.Index = index
-			Metrics.RecordNodeRequest(slaveNodeList[ind], len(obtainedFileChunk.Data))
 
 			// Store in cache
 			cache.Put(chunkHash, string(obtainedFileChunk.Data))
@@ -311,12 +286,6 @@ func getChunk(index int, chunkInfo *ChunkInfo, channelToSendChunk chan FileChunk
 }
 
 func handleFileDelete(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	success := false
-	defer func() {
-		Metrics.RecordRequest("delete", success, time.Since(startTime), 0)
-	}()
-
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Only DELETE requests are allowed on this route", http.StatusMethodNotAllowed)
 		return
@@ -363,7 +332,6 @@ func handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		delete(metadata.Chunks, filename)
 		metadata.mu.Unlock()
 		SaveMetaDataToFile()
-		success = true
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "Deleted '%s' from the system.\n", filename)
 	} else {
@@ -374,13 +342,6 @@ func handleFileDelete(w http.ResponseWriter, r *http.Request) {
 
 // handleFileUpdate handles PUT requests to update/replace a file
 func handleFileUpdate(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	success := false
-	bytesTransferred := 0
-	defer func() {
-		Metrics.RecordRequest("update", success, time.Since(startTime), bytesTransferred)
-	}()
-
 	w.Header().Set("Content-Type", "application/json")
 
 	if r.Method != http.MethodPut {
@@ -402,7 +363,6 @@ func handleFileUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "fileName and content are required", http.StatusBadRequest)
 		return
 	}
-	bytesTransferred = len([]byte(uploadRequest.Content))
 
 	// Delete the old file first
 	metadata.mu.Lock()
@@ -447,7 +407,6 @@ func handleFileUpdate(w http.ResponseWriter, r *http.Request) {
 		log.Println("────────────────────────────────────────")
 		log.Printf("✅  Master: Updated file '%s' with %v chunks", uploadRequest.FileName, len(createdFile.Chunks))
 		log.Println("────────────────────────────────────────")
-		success = true
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "success",
@@ -516,7 +475,6 @@ func handleAlgorithmConfig(w http.ResponseWriter, r *http.Request) {
 		CurrentCache = InitCache(newConfig.CacheAlgorithm, newConfig.CacheCapacity)
 		MyNodeSelector = InitNodeSelector(newConfig.NodeSelectorAlgo, config.ReadConfig.SlaveNodes)
 		algoConfigMu.Unlock()
-		Metrics.StartNewRun(newConfig.CacheAlgorithm, newConfig.NodeSelectorAlgo, "default", 1)
 
 		log.Printf("✅ Algorithms updated: Cache=%s, Selector=%s, Capacity=%d\n",
 			newConfig.CacheAlgorithm, newConfig.NodeSelectorAlgo, newConfig.CacheCapacity)
@@ -536,66 +494,6 @@ func handleAlgorithmConfig(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
-func handlePerformanceMetrics(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET requests allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	current, history := Metrics.Snapshot()
-	runs := make([]runSummary, 0, len(history)+1)
-	runs = append(runs, history...)
-	if current.RunID != "" {
-		runs = append(runs, current)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":     "success",
-		"currentRun": current,
-		"runs":       runs,
-	})
-}
-
-func handleMetricsReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST requests allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var resetRequest struct {
-		WorkloadID  string `json:"workloadId"`
-		Concurrency int    `json:"concurrency"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&resetRequest); err != nil {
-		resetRequest.WorkloadID = "default"
-		resetRequest.Concurrency = 1
-	}
-
-	if resetRequest.WorkloadID == "" {
-		resetRequest.WorkloadID = "default"
-	}
-	if resetRequest.Concurrency <= 0 {
-		resetRequest.Concurrency = 1
-	}
-
-	algoConfigMu.RLock()
-	configCopy := AlgoConfig
-	algoConfigMu.RUnlock()
-
-	Metrics.Reset(configCopy.CacheAlgorithm, configCopy.NodeSelectorAlgo, resetRequest.WorkloadID, resetRequest.Concurrency)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":      "success",
-		"message":     "Metrics reset",
-		"workloadId":  resetRequest.WorkloadID,
-		"concurrency": resetRequest.Concurrency,
-	})
-}
 
 // handleCacheStatus returns current cache status and stats
 func handleCacheStatus(w http.ResponseWriter, r *http.Request) {

@@ -61,10 +61,8 @@ func SendDataToSlave(slaveNode config.Node, chunk FileChunk) (bool, error) {
 	}
 }
 
-func RequestChunkFromSlave(slavePort string, key string) (FileChunk, error) {
+func RequestChunkFromSlave(address string, key string) (FileChunk, error) {
 
-	host := "127.0.0.1"
-	address := net.JoinHostPort(host, slavePort)
 	connection, err := net.Dial("tcp", address)
 	if err != nil {
 		log.Println("🔴 Could not connect to slave to send data:", err)
@@ -84,13 +82,13 @@ func RequestChunkFromSlave(slavePort string, key string) (FileChunk, error) {
 	buffer := make([]byte, 256)
 	n, err := connection.Read(buffer)
 	if err != nil {
-		log.Println("🔴 No response received, Connection Timed Out:", slavePort)
+		log.Println("🔴 No response received, Connection Timed Out:", address)
 		return FileChunk{}, errors.New("No response from slave")
 	}
 	var incomingFileChunk FileChunk
 	err = json.Unmarshal(buffer[:n], &incomingFileChunk)
 	if err != nil {
-		log.Println("🔴 Error unmarshaling data from", slavePort)
+		log.Println("🔴 Error unmarshaling data from", address)
 	}
 	if incomingFileChunk.Index == -1 {
 		return incomingFileChunk, errors.New("Chunk not found")
