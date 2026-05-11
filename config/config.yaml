@@ -9,6 +9,8 @@ master:
   replication_factor: 3
   read_quorum: 2
   write_quorum: 2
+  # AES-256 requires exactly 32 ASCII characters (32 bytes = 256 bits)
+  master_key: "GoDrive$SecureKey#2025!XyZ@Prod32"
 
 slaveDataNodes:
   - host: "127.0.0.1"

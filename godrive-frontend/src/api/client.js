@@ -95,13 +95,50 @@ export const uploadFile = async (fileName, content) => {
 };
 
 /**
- * Download a file from the backend
+ * Download a file from the backend.
+ * The backend returns { fileName, content } where content is Base64-encoded
+ * raw bytes (the original file, after decryption and decompression).
+ * This function decodes the Base64 and returns a Blob URL the browser
+ * can use to trigger a real file download — for any file type.
  */
 export const downloadFile = async (filename) => {
-  return apiCall(`/download?filename=${encodeURIComponent(filename)}`, {
-    method: "GET",
-  });
+  const result = await apiCall(
+    `/download?filename=${encodeURIComponent(filename)}`,
+    { method: "GET" }
+  );
+
+  if (!result.success) {
+    return result; // pass the error straight through
+  }
+
+  // The JSON payload is { fileName: string, content: string (Base64) }
+  const payload =
+    typeof result.data === "string" ? JSON.parse(result.data) : result.data;
+
+  const base64Content = payload.content || "";
+  const resolvedFileName = payload.fileName || filename;
+
+  // Decode Base64 → raw bytes
+  const binaryString = atob(base64Content);
+  const byteArray = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    byteArray[i] = binaryString.charCodeAt(i);
+  }
+
+  // Wrap in a Blob so the browser treats it as a real file download
+  const blob = new Blob([byteArray], { type: "application/octet-stream" });
+  const blobUrl = URL.createObjectURL(blob);
+
+  return {
+    success: true,
+    data: {
+      fileName: resolvedFileName,
+      blobUrl,          // use this to trigger <a download>
+      sizeBytes: byteArray.length,
+    },
+  };
 };
+
 
 /**
  * Update/replace an existing file

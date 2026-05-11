@@ -3,6 +3,7 @@ package master
 import (
 	"crypto/sha256"
 	"fmt"
+	"godrive/config"
 )
 
 type FileChunk struct {
@@ -16,35 +17,42 @@ type FileStruct struct {
 	Chunks []FileChunk
 }
 
+// BreakFilesIntoChunks splits the file content (already compressed+encrypted bytes)
+// into fixed-size chunks using the chunk_size from config.
 func BreakFilesIntoChunks(incomingFile uploadedFile) FileStruct {
-	name, content := incomingFile.Name, incomingFile.Content
-	// chunkSize := config.ReadConfig.Master.ChunkSize
-	chunkSize := 4
+	name := incomingFile.Name
+	chunkSize := config.ReadConfig.Master.ChunkSize
+	contentInBytes := []byte(incomingFile.Content)
+
 	var createdFile FileStruct
-	contentInBytes := []byte(content)
 	createdFile.Name = name
 	chunkInd := 0
+
 	for i := 0; i < len(contentInBytes); i += chunkSize {
 		end := min(len(contentInBytes), i+chunkSize)
-		chunkHash := sha256.Sum256(contentInBytes[i:end])
+		chunkData := contentInBytes[i:end]
+		chunkHash := sha256.Sum256(chunkData)
 		newChunk := FileChunk{
 			Index: chunkInd,
-			Data:  contentInBytes[i:end],
+			Data:  chunkData,
 			Hash:  fmt.Sprintf("%x", chunkHash),
 		}
-		chunkInd += 1
+		chunkInd++
 		createdFile.Chunks = append(createdFile.Chunks, newChunk)
 	}
 	return createdFile
 }
+
+// MergeChunksToFile reassembles all chunks back into a single byte payload.
+// The returned uploadedFile.Content holds the raw bytes as a string
+// which will be passed to the pipeline for decryption and decompression.
 func MergeChunksToFile(downloadedFile FileStruct) uploadedFile {
-	createdFile := uploadedFile{
-		Name: downloadedFile.Name,
-	}
 	var contentInBytes []byte
-	for _, data := range downloadedFile.Chunks {
-		contentInBytes = append(contentInBytes, data.Data...)
+	for _, chunk := range downloadedFile.Chunks {
+		contentInBytes = append(contentInBytes, chunk.Data...)
 	}
-	createdFile.Content = string(contentInBytes)
-	return createdFile
+	return uploadedFile{
+		Name:    downloadedFile.Name,
+		Content: string(contentInBytes),
+	}
 }

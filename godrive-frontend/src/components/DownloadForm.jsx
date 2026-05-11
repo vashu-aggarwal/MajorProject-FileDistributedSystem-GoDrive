@@ -3,7 +3,6 @@ import { downloadFile } from "../api/client";
 
 export default function DownloadForm({ darkMode }) {
   const [fileName, setFileName] = useState("");
-  const [fileContent, setFileContent] = useState("");
   const [message, setMessage] = useState(null); // { type: "success" | "error", text: string }
   const [isLoading, setIsLoading] = useState(false);
   const [downloadMetrics, setDownloadMetrics] = useState(null); // { size, time, speed }
@@ -18,7 +17,7 @@ export default function DownloadForm({ darkMode }) {
     setMessage(null);
     setDownloadMetrics(null);
 
-    if (!fileName) {
+    if (!fileName.trim()) {
       setMessage({ type: "error", text: "Please enter a filename" });
       return;
     }
@@ -26,69 +25,45 @@ export default function DownloadForm({ darkMode }) {
     setIsLoading(true);
     const startTime = performance.now();
 
-    const result = await downloadFile(fileName);
+    const result = await downloadFile(fileName.trim());
 
     const endTime = performance.now();
-    const timeTaken = (endTime - startTime) / 1000; // Convert to seconds
+    const timeTaken = (endTime - startTime) / 1000; // seconds
 
     setIsLoading(false);
 
     if (result.success) {
-      const data =
-        typeof result.data === "string" ? JSON.parse(result.data) : result.data;
-      const content = data.content || "";
+      const { fileName: resolvedName, blobUrl, sizeBytes } = result.data;
 
-      // Calculate metrics
-      const fileSize = new Blob([content]).size;
-      const speed = (fileSize / 1024 / 1024 / timeTaken).toFixed(2);
-
-      const metrics = {
-        size: (fileSize / 1024).toFixed(2),
+      // Calculate and display metrics
+      const speed = (sizeBytes / 1024 / 1024 / timeTaken).toFixed(2);
+      setDownloadMetrics({
+        size: (sizeBytes / 1024).toFixed(2),
         time: timeTaken.toFixed(2),
         speed: isNaN(speed) ? "0.00" : speed,
-      };
+      });
 
-      setDownloadMetrics(metrics);
+      // Programmatically trigger a real browser file-save dialog
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = resolvedName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
 
-      setFileContent(content);
-      setMessage({ type: "success", text: "File downloaded successfully." });
+      // Release the Blob URL from memory after the download starts
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
 
-      // Record metrics with current algorithm
-      const currentConfig = localStorage.getItem("currentAlgorithm");
-      if (currentConfig) {
-        try {
-          const config = JSON.parse(currentConfig);
-          const algoName = config.algorithm || "unknown";
-          const algorithmMetrics = JSON.parse(
-            localStorage.getItem("algorithmMetrics") || "{}",
-          );
-
-          // Store metrics for this algorithm
-          algorithmMetrics[algoName] = metrics;
-          localStorage.setItem(
-            "algorithmMetrics",
-            JSON.stringify(algorithmMetrics),
-          );
-
-          // Dispatch custom event to notify AlgorithmSelector
-          window.dispatchEvent(new Event("metricsUpdated"));
-        } catch (e) {
-          console.log("Could not record metrics");
-        }
-      }
+      setMessage({
+        type: "success",
+        text: `"${resolvedName}" downloaded successfully.`,
+      });
     } else {
-      setFileContent("");
       setMessage({ type: "error", text: "Download failed: " + result.error });
     }
   };
 
   const inputClass = `border p-2 w-full mb-2 rounded placeholder-opacity-70 ${
-    darkMode
-      ? "bg-neutral-900 text-neutral-100 placeholder-neutral-400 border-neutral-600"
-      : "bg-gray-200 text-gray-900 placeholder-neutral-900 border-neutral-900"
-  }`;
-
-  const textareaClass = `border p-3 w-full mt-2 rounded resize-none font-mono text-sm whitespace-pre-wrap break-words ${
     darkMode
       ? "bg-neutral-900 text-neutral-100 placeholder-neutral-400 border-neutral-600"
       : "bg-gray-200 text-gray-900 placeholder-neutral-900 border-neutral-900"
@@ -107,17 +82,24 @@ export default function DownloadForm({ darkMode }) {
       }`}
     >
       <h2 className="text-xl font-bold mb-2">Download File</h2>
+
       <input
         className={inputClass}
-        placeholder="Filename"
+        placeholder="Filename (e.g. report.pdf, photo.jpg)"
         value={fileName}
         onChange={(e) => setFileName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handleDownload()}
         disabled={isLoading}
       />
+
       <button
         onClick={handleDownload}
         disabled={isLoading}
-        className={`${isLoading ? "bg-green-400 cursor-not-allowed" : "bg-green-500 hover:bg-green-600"} text-white px-4 py-2 rounded transition-colors`}
+        className={`${
+          isLoading
+            ? "bg-green-400 cursor-not-allowed"
+            : "bg-green-500 hover:bg-green-600"
+        } text-white px-4 py-2 rounded transition-colors`}
       >
         {isLoading ? "Downloading..." : "Download"}
       </button>
@@ -149,27 +131,6 @@ export default function DownloadForm({ darkMode }) {
             </div>
           </div>
         </div>
-      )}
-
-      {fileContent !== "" && (
-        <>
-          <label
-            htmlFor="fileContent"
-            className={`block mt-4 mb-1 font-semibold ${
-              darkMode ? "text-gray-300" : "text-gray-700"
-            }`}
-          >
-            File Content
-          </label>
-          <textarea
-            id="fileContent"
-            className={textareaClass}
-            rows="8"
-            readOnly
-            value={fileContent}
-            placeholder="No content to display"
-          />
-        </>
       )}
     </div>
   );

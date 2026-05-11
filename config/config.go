@@ -18,6 +18,7 @@ type MasterConfig struct {
 	ReplicationFactor int    `yaml:"replication_factor"`
 	ReadQuorum        int    `yaml:"read_quorum"`
 	WriteQuorum       int    `yaml:"write_quorum"`
+	MasterKey         string `yaml:"master_key"`
 }
 
 type Node struct {

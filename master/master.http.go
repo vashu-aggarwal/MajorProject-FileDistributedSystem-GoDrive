@@ -1,9 +1,12 @@
 package master
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"godrive/config"
+	"godrive/pipeline"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -133,83 +136,100 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var incomingFile uploadedFile
+	// Read raw file bytes regardless of format (text, binary, image, etc.)
+	var fileName string
+	var rawFileBytes []byte
 
-	// Check if this is FormData (multipart) or JSON
 	contentType := r.Header.Get("Content-Type")
 
 	if contentType == "application/json" {
-		// Handle JSON request (text mode from frontend)
-		err := json.NewDecoder(r.Body).Decode(&incomingFile)
-		if err != nil {
-			http.Error(w, "Bad format file", http.StatusBadRequest)
+		// JSON path: frontend sends {"fileName": "...", "content": "..."}
+		var jsonBody struct {
+			FileName string `json:"fileName"`
+			Content  string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&jsonBody); err != nil {
+			http.Error(w, "Bad request format", http.StatusBadRequest)
 			return
 		}
+		fileName = jsonBody.FileName
+		rawFileBytes = []byte(jsonBody.Content)
 	} else {
-		// Handle multipart form data (file mode from frontend)
-		err := r.ParseMultipartForm(100 << 20) // 100 MB max
-		if err != nil {
+		// Multipart path: frontend sends a form with the actual file
+		if err := r.ParseMultipartForm(100 << 20); err != nil { // 100 MB max
 			http.Error(w, "Failed to parse form data", http.StatusBadRequest)
 			return
 		}
-
-		// Get filename from form
-		fileName := r.FormValue("fileName")
+		fileName = r.FormValue("fileName")
 		if fileName == "" {
-			http.Error(w, "FileName is empty", http.StatusBadRequest)
+			http.Error(w, "fileName field is missing", http.StatusBadRequest)
 			return
 		}
-
-		// Get file from form
 		file, _, err := r.FormFile("file")
 		if err != nil {
 			http.Error(w, "Failed to read file from form", http.StatusBadRequest)
 			return
 		}
 		defer file.Close()
-
-		// Read file content as bytes
-		fileBytes := make([]byte, 0)
-		buffer := make([]byte, 1024)
-		for {
-			n, err := file.Read(buffer)
-			if n > 0 {
-				fileBytes = append(fileBytes, buffer[:n]...)
-			}
-			if err != nil {
-				break
-			}
+		rawFileBytes, err = io.ReadAll(file)
+		if err != nil {
+			http.Error(w, "Failed to read file bytes", http.StatusInternalServerError)
+			return
 		}
-
-		// Convert bytes to string (base64 encoded for binary files)
-		incomingFile.Name = fileName
-		incomingFile.Content = string(fileBytes)
 	}
 
-	if incomingFile.Name == "" || incomingFile.Content == "" {
-		http.Error(w, "FileName or content is empty", http.StatusBadRequest)
+	if fileName == "" || len(rawFileBytes) == 0 {
+		http.Error(w, "fileName or file content is empty", http.StatusBadRequest)
 		return
 	}
-	bytesTransferred = len([]byte(incomingFile.Content))
-	if _, exists := metadata.Chunks[incomingFile.Name]; exists {
-		http.Error(w, "File already present in system. Delete file first to use upload or use 'update'.", http.StatusConflict)
+
+	if _, exists := metadata.Chunks[fileName]; exists {
+		http.Error(w, "File already present in system. Delete first or use 'update'.", http.StatusConflict)
 		return
 	}
+
+	// ── PIPELINE: Compress then Encrypt ───────────────────────────────────────
+	log.Printf("🔵 Pipeline: Compressing '%s' (%d bytes)...", fileName, len(rawFileBytes))
+	compressedBytes, err := pipeline.Compress(rawFileBytes)
+	if err != nil {
+		log.Printf("⚠️  Pipeline: Compression failed for '%s': %v", fileName, err)
+		http.Error(w, "Failed to compress file", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("✅ Pipeline: Compressed '%s' from %d → %d bytes", fileName, len(rawFileBytes), len(compressedBytes))
+
+	masterKey := []byte(config.ReadConfig.Master.MasterKey)
+	encryptedBytes, err := pipeline.Encrypt(masterKey, compressedBytes)
+	if err != nil {
+		log.Printf("⚠️  Pipeline: Encryption failed for '%s': %v", fileName, err)
+		http.Error(w, "Failed to encrypt file", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("✅ Pipeline: Encrypted '%s' (%d bytes)", fileName, len(encryptedBytes))
+	// ─────────────────────────────────────────────────────────────────────────
+
+	bytesTransferred = len(encryptedBytes)
+
+	// Pass the encrypted bytes into the chunker
+	incomingFile := uploadedFile{
+		Name:    fileName,
+		Content: string(encryptedBytes),
+	}
+
 	createdFile := BreakFilesIntoChunks(incomingFile)
 	if distributeSuccess := DistriButeChunksToNode(createdFile); distributeSuccess {
 		log.Println("────────────────────────────────────────")
-		log.Printf("✅  Master: Splitted file into %v chunks", len(createdFile.Chunks))
+		log.Printf("✅  Master: Split '%s' into %v chunks and distributed.", fileName, len(createdFile.Chunks))
 		log.Println("────────────────────────────────────────")
 		success = true
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("Accepted file: '%v'.", incomingFile.Name)))
+		w.Write([]byte(fmt.Sprintf("Accepted file: '%v'.", fileName)))
 	} else {
 		log.Println("────────────────────────────────────────")
-		log.Printf("⚠️  Master: Failed to upload file")
+		log.Printf("⚠️  Master: Failed to distribute '%s'", fileName)
 		log.Println("────────────────────────────────────────")
 		http.Error(w, "Failed to upload file", http.StatusInternalServerError)
 	}
-
 }
 
 func handleFileDownload(w http.ResponseWriter, r *http.Request) {
@@ -224,16 +244,20 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Only GET requests allowed in this route", http.StatusBadRequest)
 		return
 	}
+
 	filename := r.URL.Query().Get("filename")
 	if filename == "" {
-		http.Error(w, "No key found", http.StatusBadRequest)
+		http.Error(w, "filename query parameter is missing", http.StatusBadRequest)
 		return
 	}
+
 	indexToFilechunkMap, exists := metadata.Chunks[filename]
 	if !exists {
 		http.Error(w, "No such file present in the system.", http.StatusNotFound)
 		return
 	}
+
+	// Fetch all chunks from slave nodes in parallel
 	downloadedFile := FileStruct{
 		Name:   filename,
 		Chunks: make([]FileChunk, len(indexToFilechunkMap)),
@@ -251,25 +275,59 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	for incomingFileChunk := range incomingChunksChannel {
 		if incomingFileChunk.Index == -1 {
 			log.Println("────────────────────────────────────────")
-			log.Printf("⚠️  Master: Error while downloading file")
+			log.Printf("⚠️  Master: Error retrieving chunk for '%s'", filename)
 			log.Println("────────────────────────────────────────")
-			http.Error(w, "Error in Downloading file", http.StatusInternalServerError)
+			http.Error(w, "Error retrieving file chunks", http.StatusInternalServerError)
 			return
 		}
 		downloadedFile.Chunks[incomingFileChunk.Index] = incomingFileChunk
 	}
+
 	log.Println("────────────────────────────────────────")
-	log.Printf("✅ Master: Download %v sucessfully\n", downloadedFile.Name)
+	log.Printf("✅ Master: All chunks retrieved for '%s'", filename)
 	log.Println("────────────────────────────────────────")
-	createdFileAfterMerge := MergeChunksToFile(downloadedFile)
-	bytesTransferred = len([]byte(createdFileAfterMerge.Content))
-	createdFileJson, err := json.Marshal(createdFileAfterMerge)
+
+	// Reassemble the encrypted+compressed byte payload
+	mergedFile := MergeChunksToFile(downloadedFile)
+	encryptedBytes := []byte(mergedFile.Content)
+
+	// ── PIPELINE: Decrypt then Decompress ────────────────────────────────────
+	masterKey := []byte(config.ReadConfig.Master.MasterKey)
+	compressedBytes, err := pipeline.Decrypt(masterKey, encryptedBytes)
 	if err != nil {
-		log.Println("Error")
+		log.Printf("⚠️  Pipeline: Decryption failed for '%s': %v", filename, err)
+		http.Error(w, "Failed to decrypt file - data may be corrupted", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("✅ Pipeline: Decrypted '%s'", filename)
+
+	rawFileBytes, err := pipeline.Decompress(compressedBytes)
+	if err != nil {
+		log.Printf("⚠️  Pipeline: Decompression failed for '%s': %v", filename, err)
+		http.Error(w, "Failed to decompress file", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("✅ Pipeline: Decompressed '%s' → %d bytes", filename, len(rawFileBytes))
+	// ─────────────────────────────────────────────────────────────────────────
+
+	bytesTransferred = len(rawFileBytes)
+
+	// FIX: Encode raw bytes as Base64 before placing them in the JSON response.
+	// This guarantees that binary files (images, PDFs, .bin files, etc.) are
+	// never corrupted by JSON's UTF-8 text encoding requirements.
+	base64Content := base64.StdEncoding.EncodeToString(rawFileBytes)
+
+	response := struct {
+		FileName string `json:"fileName"`
+		Content  string `json:"content"`
+	}{
+		FileName: filename,
+		Content:  base64Content,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	success = true
-	w.Write(createdFileJson)
+	json.NewEncoder(w).Encode(response)
 }
 func getChunk(index int, chunkInfo *ChunkInfo, channelToSendChunk chan FileChunk, wg *sync.WaitGroup) {
 	defer wg.Done()
