@@ -7,6 +7,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// PipelineConfig holds settings for the optional Python pipeline microservice.
+// Controlled entirely from config.yaml — set enabled: false to bypass the pipeline.
+type PipelineConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	ServiceURL string `yaml:"service_url"`
+	AESKeyHex  string `yaml:"aes_key_hex"`
+	Port       int    `yaml:"port"`
+}
+
 type MasterConfig struct {
 	Host              string `yaml:"host"`
 	HttpPort          int    `yaml:"http_port"`
@@ -26,9 +35,10 @@ type Node struct {
 }
 
 type Config struct {
-	Master      MasterConfig
-	SlaveNodes  []Node `yaml:"slaveDataNodes"`
-	BackupNodes []Node `yaml:"backupNodes"`
+	Master      MasterConfig   `yaml:"master"`
+	SlaveNodes  []Node         `yaml:"slaveDataNodes"`
+	BackupNodes []Node         `yaml:"backupNodes"`
+	Pipeline    PipelineConfig `yaml:"pipeline"`
 }
 
 var ReadConfig Config
