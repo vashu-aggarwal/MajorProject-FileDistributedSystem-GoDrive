@@ -5,6 +5,7 @@ import MetricsDisplay from "./MetricsDisplay";
 export default function AlgorithmSelector({ darkMode }) {
   const [cacheAlgorithm, setCacheAlgorithm] = useState("lru");
   const [nodeSelectorAlgo, setNodeSelectorAlgo] = useState("roundRobin");
+  const [cacheCapacity, setCacheCapacity] = useState(1);
   const [currentConfig, setCurrentConfig] = useState(null);
   const [message, setMessage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +47,7 @@ export default function AlgorithmSelector({ darkMode }) {
         setCurrentConfig(data);
         setCacheAlgorithm(data.currentCache?.toLowerCase() || "lru");
         setNodeSelectorAlgo(data.currentSelector || "roundRobin");
+        setCacheCapacity(data.cacheCapacity || 1);
       }
     };
     fetchConfig();
@@ -64,7 +66,11 @@ export default function AlgorithmSelector({ darkMode }) {
   const handleApply = async () => {
     setMessage(null);
     setIsLoading(true);
-    const result = await setAlgorithms(cacheAlgorithm, nodeSelectorAlgo);
+    const result = await setAlgorithms(
+      cacheAlgorithm,
+      nodeSelectorAlgo,
+      cacheCapacity,
+    );
     setIsLoading(false);
 
     if (result.success) {
@@ -105,8 +111,8 @@ export default function AlgorithmSelector({ darkMode }) {
   };
 
   const selectClass = `border p-2 w-full mb-3 rounded ${darkMode
-      ? "bg-neutral-900 text-neutral-100 border-neutral-600"
-      : "bg-gray-200 text-gray-900 border-neutral-900"
+    ? "bg-neutral-900 text-neutral-100 border-neutral-600"
+    : "bg-gray-200 text-gray-900 border-neutral-900"
     }`;
 
   const labelClass = `block font-semibold mb-1 ${darkMode ? "text-gray-300" : "text-gray-700"
@@ -118,8 +124,8 @@ export default function AlgorithmSelector({ darkMode }) {
       : "bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mt-3";
 
   const statusClass = `p-3 rounded mt-3 text-sm ${darkMode
-      ? "bg-neutral-800 border border-neutral-700 text-gray-300"
-      : "bg-gray-100 border border-gray-300 text-gray-700"
+    ? "bg-neutral-800 border border-neutral-700 text-gray-300"
+    : "bg-gray-100 border border-gray-300 text-gray-700"
     }`;
 
   return (
@@ -160,6 +166,20 @@ export default function AlgorithmSelector({ darkMode }) {
           </select>
         </div>
 
+        <div>
+          <label className={labelClass}>Cache Capacity (MB)</label>
+          <input
+            type="number"
+            value={cacheCapacity}
+            onChange={(e) => setCacheCapacity(parseInt(e.target.value) || 0)}
+            disabled={isLoading}
+            min="1"
+            max="10000"
+            className={selectClass}
+            placeholder="Enter cache capacity"
+          />
+        </div>
+
         <button
           onClick={handleApply}
           disabled={isLoading}
@@ -196,8 +216,8 @@ export default function AlgorithmSelector({ darkMode }) {
             <button
               onClick={clearMetrics}
               className={`w-full px-3 py-1 rounded text-sm ${darkMode
-                  ? "bg-red-900 text-red-100 hover:bg-red-800"
-                  : "bg-red-100 text-red-700 hover:bg-red-200"
+                ? "bg-red-900 text-red-100 hover:bg-red-800"
+                : "bg-red-100 text-red-700 hover:bg-red-200"
                 }`}
             >
               Clear Metrics History

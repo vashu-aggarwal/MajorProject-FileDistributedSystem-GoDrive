@@ -134,13 +134,17 @@ export const getAlgorithms = async () => {
 /**
  * Update algorithm configuration
  */
-export const setAlgorithms = async (cacheAlgorithm, nodeSelectorAlgo) => {
+export const setAlgorithms = async (
+  cacheAlgorithm,
+  nodeSelectorAlgo,
+  cacheCapacity = 1,
+) => {
   return apiCall("/config/algorithms", {
     method: "POST",
     body: JSON.stringify({
       cacheAlgorithm,
       nodeSelectorAlgo,
-      cacheCapacity: 100, // Default cache capacity in MB
+      cacheCapacity: parseInt(cacheCapacity),
     }),
   });
 };

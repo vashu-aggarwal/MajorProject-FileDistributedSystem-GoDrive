@@ -49,11 +49,11 @@ func StartMasterHttp() {
 	AlgoConfig = AlgorithmConfig{
 		CacheAlgorithm:   "lru",
 		NodeSelectorAlgo: "leastNode",
-		CacheCapacity:    100,
+		CacheCapacity:    1,
 	}
 
 	MyNodeSelector = NewLeastNodeSelector(config.ReadConfig.SlaveNodes)
-	CurrentCache = InitCache("lru", 100)
+	CurrentCache = InitCache("lru", 1)
 	Metrics.Init(AlgoConfig.CacheAlgorithm, AlgoConfig.NodeSelectorAlgo)
 
 	http.HandleFunc("/", corsMiddleware(healthCheck))
@@ -507,7 +507,7 @@ func handleAlgorithmConfig(w http.ResponseWriter, r *http.Request) {
 
 		// Validate cache capacity
 		if newConfig.CacheCapacity <= 0 {
-			http.Error(w, "Cache capacity must be positive", http.StatusBadRequest)
+			http.Error(w, "Cache capacity must be greater than 0", http.StatusBadRequest)
 			return
 		}
 

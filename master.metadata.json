@@ -15712,6 +15712,106 @@
       ]
     }
   },
+  "major.txt": {
+    "0": {
+      "ChunkHash": "81fad219cc5cf87dbed80e40add5dc38adf52d066cefd7fc56b67c8c39fa4f23",
+      "SlaveNodeList": [
+        "6003",
+        "6007"
+      ]
+    },
+    "1": {
+      "ChunkHash": "0ebdc3317b75839f643387d783535adc360ca01f33c75f7c1e7373adcd675c0b",
+      "SlaveNodeList": [
+        "6006",
+        "6010",
+        "6003"
+      ]
+    },
+    "2": {
+      "ChunkHash": "65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2",
+      "SlaveNodeList": [
+        "6007",
+        "6010"
+      ]
+    }
+  },
+  "major44.txt": {
+    "0": {
+      "ChunkHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "SlaveNodeList": [
+        "5001",
+        "6008",
+        "6010"
+      ]
+    },
+    "1": {
+      "ChunkHash": "91af7d847f80f22c5ef0d11588ce9bb5d10d9ba7e8f83f380f807ab3066eb289",
+      "SlaveNodeList": [
+        "6002",
+        "6009",
+        "6004"
+      ]
+    }
+  },
+  "major50.txt": {
+    "0": {
+      "ChunkHash": "0ebdc3317b75839f643387d783535adc360ca01f33c75f7c1e7373adcd675c0b",
+      "SlaveNodeList": [
+        "5001",
+        "6005",
+        "6008"
+      ]
+    },
+    "1": {
+      "ChunkHash": "65c74c15a686187bb6bbf9958f494fc6b80068034a659a9ad44991b08c58f2d2",
+      "SlaveNodeList": [
+        "6007",
+        "6006"
+      ]
+    }
+  },
+  "major60.txt": {
+    "0": {
+      "ChunkHash": "81fad219cc5cf87dbed80e40add5dc38adf52d066cefd7fc56b67c8c39fa4f23",
+      "SlaveNodeList": [
+        "6005",
+        "6008"
+      ]
+    },
+    "1": {
+      "ChunkHash": "b127e22905025343cdcc4d7629342e11d888532f5eb2c12304843eeb7f8c7735",
+      "SlaveNodeList": [
+        "6005",
+        "6006"
+      ]
+    },
+    "2": {
+      "ChunkHash": "9294ab38039f60d2ec53822fb46b52c663af7ea478f4d17bf43da44ede5e166c",
+      "SlaveNodeList": [
+        "6005",
+        "6006",
+        "6008"
+      ]
+    }
+  },
+  "major80.txt": {
+    "0": {
+      "ChunkHash": "4fcd28a2a0be322f3b661a338e83ae30805a6a23bff5b33a09468f180d79697c",
+      "SlaveNodeList": [
+        "6003",
+        "6004"
+      ]
+    },
+    "1": {
+      "ChunkHash": "1ad25d0002690dc02e2708a297d8c9df1f160d376f663309cc261c7c921367e7",
+      "SlaveNodeList": [
+        "6003",
+        "6004",
+        "6007"
+      ]
+    }
+  },
   "major_project_final.pdf": {
     "0": {
       "ChunkHash": "0ebdc3317b75839f643387d783535adc360ca01f33c75f7c1e7373adcd675c0b",

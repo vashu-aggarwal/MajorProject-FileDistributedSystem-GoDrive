@@ -3,7 +3,7 @@ master:
   http_port: 4000
   tcp_port: 5000
   ws_port: 6000
-  heartbeat_interval: 5000  
+  heartbeat_interval: 5000
   lock_timeout: 3000
   chunk_size: 128
   replication_factor: 3
