@@ -298,11 +298,18 @@ def pipeline_encode():
         # Step 3 — Base64 Encode
         encoded = base64.b64encode(encrypted).decode("utf-8")
 
+        # Calculate compression ratio
+        reduction = 100 - (len(compressed)/len(text)*100) if len(text) > 0 else 0
         log.info(
-            f"[PIPELINE/ENCODE] {len(text)} chars "
-            f"→ compressed {len(compressed)}B "
-            f"→ encrypted {len(encrypted)}B "
-            f"→ base64 {len(encoded)} chars"
+            f"\n"
+            f"┌─────────────────────────────────────┐\n"
+            f"│ PIPELINE ENCODE RESULTS             │\n"
+            f"├─────────────────────────────────────┤\n"
+            f"│ Original Size   : {len(text):>8} chars │\n"
+            f"│ Compressed Size : {len(compressed):>8} bytes │ (-{reduction:.1f}%)\n"
+            f"│ Encrypted Size  : {len(encrypted):>8} bytes │\n"
+            f"│ Final Base64    : {len(encoded):>8} chars │\n"
+            f"└─────────────────────────────────────┘"
         )
         return _ok(encoded, original_size=len(text), encoded_size=len(encoded))
     except Exception as e:
@@ -336,9 +343,14 @@ def pipeline_decode():
         text = lzw_decompress(compressed)
 
         log.info(
-            f"[PIPELINE/DECODE] {len(data)} chars "
-            f"→ decrypted {len(compressed)}B "
-            f"→ decompressed {len(text)} chars"
+            f"\n"
+            f"┌─────────────────────────────────────┐\n"
+            f"│ PIPELINE DECODE RESULTS             │\n"
+            f"├─────────────────────────────────────┤\n"
+            f"│ Input Base64    : {len(data):>8} chars │\n"
+            f"│ Decrypted Size  : {len(compressed):>8} bytes │\n"
+            f"│ Decompressed    : {len(text):>8} chars │\n"
+            f"└─────────────────────────────────────┘"
         )
         return _ok(text)
     except Exception as e:

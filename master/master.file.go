@@ -25,7 +25,7 @@ type FileStruct struct {
 // and text-safe.
 func BreakFilesIntoChunks(incomingFile uploadedFile) FileStruct {
 	name, content := incomingFile.Name, incomingFile.Content
-	chunkSize := 4
+	chunkSize := 128
 
 	// ── Pipeline encode (if enabled) ──────────────────────────────────────────
 	if pipeline.IsEnabled() {
