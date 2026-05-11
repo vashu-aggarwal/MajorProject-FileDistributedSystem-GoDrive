@@ -97,24 +97,32 @@ func handleIncomingMasterRequest(node config.Node, connection net.Conn) {
 			connection.Write([]byte("ACK"))
 		}
 	} else if incomingPayload.Type == "heartbeat" {
-		connection.Write([]byte("ACK"))
+		if node.Port == "6001" {
+			connection.Write([]byte("ZAK"))
+		} else {
+			connection.Write([]byte("ACK"))
+		}
 	} else if strings.HasPrefix(incomingPayload.Type, "transfer@") {
+		log.Printf("📥 [%v]: Received InterNode Transfer request: %s", node.Port, incomingPayload.Type)
 		parts := strings.Split(incomingPayload.Type, "@")
 		var targetHost, targetPort string
 
 		if len(parts) >= 3 {
-			// Format: transfer@port@host
-			targetPort = parts[1]
-			targetHost = parts[2]
+			// Format: transfer@host@port
+			targetHost = parts[1]
+			targetPort = parts[2]
 		} else if len(parts) == 2 {
 			// Fallback old format: transfer@port
 			targetPort = parts[1]
 			targetHost = "127.0.0.1"
 		}
 
+		log.Printf("🚀 [%v]: Initiating transfer of chunk %s to %s:%s", node.Port, incomingPayload.Key, targetHost, targetPort)
 		if handleInternodeDataTransfer(targetHost, targetPort, incomingPayload.Key, node.Port) {
+			log.Printf("✅ [%v]: InterNode Transfer successful", node.Port)
 			connection.Write([]byte("ACK"))
 		} else {
+			log.Printf("❌ [%v]: InterNode Transfer failed", node.Port)
 			connection.Write([]byte("NOACK"))
 		}
 

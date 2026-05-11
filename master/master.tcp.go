@@ -171,9 +171,9 @@ func SendHeartBeatToSlave(slaveNode config.Node) bool {
 	}
 }
 
-func SendInterNodeTransferRequest(fromPort string, toPort string, chunkHash string) bool {
+func SendInterNodeTransferRequest(fromAddress string, toAddress string, chunkHash string) bool {
 
-	connection, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%s", fromPort))
+	connection, err := net.Dial("tcp", fromAddress)
 
 	if err != nil {
 		log.Println("Could not connect to slave to send internode request:", err)
@@ -181,7 +181,8 @@ func SendInterNodeTransferRequest(fromPort string, toPort string, chunkHash stri
 	}
 	defer connection.Close()
 
-	payload := TcpPayload{Type: fmt.Sprintf("transfer@%v", toPort), Key: chunkHash}
+	host, port, _ := net.SplitHostPort(toAddress)
+	payload := TcpPayload{Type: fmt.Sprintf("transfer@%s@%s", host, port), Key: chunkHash}
 	jsonData, _ := json.Marshal(payload)
 	_, err = connection.Write(jsonData)
 	if err != nil {
@@ -200,7 +201,7 @@ func SendInterNodeTransferRequest(fromPort string, toPort string, chunkHash stri
 
 	ack := string(buffer[:n])
 	if ack == "ACK" {
-		log.Printf("🟢 InterNode transfer from %s to %s successful", fromPort, toPort)
+		log.Printf("🟢 InterNode transfer from %s to %s successful", fromAddress, toAddress)
 		return true
 	} else {
 		log.Println("🔴 InterNode transfer unsuccessful")

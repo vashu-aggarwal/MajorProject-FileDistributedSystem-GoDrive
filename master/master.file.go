@@ -3,6 +3,7 @@ package master
 import (
 	"crypto/sha256"
 	"fmt"
+	"godrive/config"
 )
 
 type FileChunk struct {
@@ -18,8 +19,8 @@ type FileStruct struct {
 
 func BreakFilesIntoChunks(incomingFile uploadedFile) FileStruct {
 	name, content := incomingFile.Name, incomingFile.Content
-	// chunkSize := config.ReadConfig.Master.ChunkSize
-	chunkSize := 4
+	chunkSize := config.ReadConfig.Master.ChunkSize
+	// chunkSize := 4
 	var createdFile FileStruct
 	contentInBytes := []byte(content)
 	createdFile.Name = name
