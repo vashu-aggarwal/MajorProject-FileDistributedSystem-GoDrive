@@ -190,12 +190,12 @@ func (as *AlgorithmSelector) PromptForSelector(reader *bufio.Reader, available [
 
 // PromptForCapacity asks for cache capacity
 func (as *AlgorithmSelector) PromptForCapacity(reader *bufio.Reader) (int, error) {
-	fmt.Print("\n🔹 Enter Cache Capacity (1-10000, default 100): ")
+	fmt.Print("\n🔹 Enter Cache Capacity (1-10000, default 1): ")
 	input, _ := reader.ReadString('\n')
 	input = strings.TrimSpace(input)
 
 	if input == "" {
-		return 100, nil
+		return 1, nil
 	}
 
 	var capacity int
@@ -442,7 +442,7 @@ func runAlgorithmSelector(masterURL string) {
 			var capacity int
 			_, err := fmt.Sscanf(os.Args[4], "%d", &capacity)
 			if err != nil {
-				capacity = 100
+				capacity = 1
 			}
 			selector.DirectModeFromArgs(os.Args[2], os.Args[3], capacity)
 			return

@@ -1,314 +1,276 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { uploadFile } from "../api/client";
+import { FiUploadCloud, FiX, FiFile, FiCheckCircle, FiAlertTriangle, FiInfo } from "react-icons/fi";
+
+// ─── Toast notification shown on the CARD face ───────────────────────────────
+function Toast({ msg, onDismiss }) {
+  if (!msg) return null;
+  const styles = {
+    success: "bg-emerald-500/90 text-white border-emerald-400",
+    error:   "bg-red-500/90   text-white border-red-400",
+    warning: "bg-amber-500/90 text-white border-amber-400",
+    info:    "bg-blue-500/90  text-white border-blue-400",
+  };
+  const icons = {
+    success: <FiCheckCircle  size={16} />,
+    error:   <FiAlertTriangle size={16} />,
+    warning: <FiAlertTriangle size={16} />,
+    info:    <FiInfo          size={16} />,
+  };
+  return (
+    <div
+      className={`absolute bottom-4 left-4 right-4 z-50 flex items-start gap-2 px-4 py-3 rounded-2xl border shadow-xl backdrop-blur-sm text-sm animate-slideUp ${styles[msg.type] ?? styles.info}`}
+    >
+      <span className="mt-0.5 shrink-0">{icons[msg.type]}</span>
+      <span className="flex-1 font-medium leading-snug">{msg.text}</span>
+      <button onClick={onDismiss} className="ml-2 opacity-70 hover:opacity-100 transition shrink-0">
+        <FiX size={14} />
+      </button>
+    </div>
+  );
+}
 
 export default function UploadForm({ darkMode }) {
-  const [fileName, setFileName] = useState("");
-  const [content, setContent] = useState("");
-  const [message, setMessage] = useState(null); // { type: "success" | "error", text: string }
-  const [isLoading, setIsLoading] = useState(false);
-  const [uploadMetrics, setUploadMetrics] = useState(null); // { size, time, speed }
-  const [uploadMode, setUploadMode] = useState("text"); // "text" or "file"
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [filePreview, setFilePreview] = useState("");
+  const [showPopup,      setShowPopup]      = useState(false);
+  const [fileName,       setFileName]       = useState("");
+  const [content,        setContent]        = useState("");
+  const [pickedFile,     setPickedFile]     = useState(null); // File object
+  const [inputMode,      setInputMode]      = useState("text"); // "text" | "file"
+  const [isDragging,     setIsDragging]     = useState(false);
+  const [isLoading,      setIsLoading]      = useState(false);
+  const [toast,          setToast]          = useState(null);
+  const [uploadMetrics,  setUploadMetrics]  = useState(null);
+  // duplicate-overwrite confirmation
+  const [dupPending,     setDupPending]     = useState(false);
+
   const fileInputRef = useRef(null);
+  const toastTimerRef = useRef(null);
 
-  useEffect(() => {
-    if (!message) return;
-    const timer = setTimeout(() => setMessage(null), 5000);
-    return () => clearTimeout(timer);
-  }, [message]);
-
-  const handleFileSelect = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setSelectedFile(file);
-    setFileName(file.name);
-
-    // For text files, show preview
-    if (
-      file.type.startsWith("text/") ||
-      file.name.endsWith(".txt") ||
-      file.name.endsWith(".pdf") ||
-      file.name.endsWith(".docx")
-    ) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (file.type.startsWith("text/")) {
-          setFilePreview(e.target.result);
-        } else {
-          setFilePreview(
-            `[Binary file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)]`,
-          );
-        }
-      };
-      reader.readAsText(file);
+  const showToast = useCallback((type, text, duration = 5000) => {
+    clearTimeout(toastTimerRef.current);
+    setToast({ type, text });
+    if (duration > 0) {
+      toastTimerRef.current = setTimeout(() => setToast(null), duration);
     }
+  }, []);
+
+  useEffect(() => () => clearTimeout(toastTimerRef.current), []);
+
+  // Reset popup state on close
+  const closePopup = () => {
+    setShowPopup(false);
+    setFileName("");
+    setContent("");
+    setPickedFile(null);
+    setIsDragging(false);
+    setDupPending(false);
   };
 
-  const handleUpload = async () => {
-    setMessage(null);
-    setUploadMetrics(null);
+  // ── File picker / drag handlers ────────────────────────────────────────────
+  const applyFile = (file) => {
+    setPickedFile(file);
+    setFileName(file.name);
+    setInputMode("file");
+  };
 
-    if (!fileName) {
-      setMessage({
-        type: "error",
-        text: "Please provide a filename",
-      });
+  const onFileInputChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) applyFile(file);
+  };
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) applyFile(file);
+  }, []);
+
+  const onDragOver  = (e) => { e.preventDefault(); setIsDragging(true);  };
+  const onDragLeave = ()  => setIsDragging(false);
+
+  // ── Core upload logic ──────────────────────────────────────────────────────
+  const doUpload = async () => {
+    if (!fileName.trim()) {
+      showToast("error", "Please enter a filename.");
       return;
     }
-
-    // Validate content based on upload mode
-    if (uploadMode === "text" && !content) {
-      setMessage({
-        type: "error",
-        text: "Please fill in filename and content",
-      });
-      return;
-    }
-
-    if (uploadMode === "file" && !selectedFile) {
-      setMessage({
-        type: "error",
-        text: "Please select a file",
-      });
+    if (inputMode === "text" && !content.trim()) {
+      showToast("error", "Please enter file content or pick a file.");
       return;
     }
 
     setIsLoading(true);
+    setDupPending(false);
+
+    const payload   = inputMode === "file" ? pickedFile : content;
     const startTime = performance.now();
-    let fileSize = 0;
+    const fileSize  = inputMode === "file"
+      ? pickedFile.size
+      : new Blob([content]).size;
 
-    let result;
-    if (uploadMode === "text") {
-      fileSize = new Blob([content]).size;
-      result = await uploadFile(fileName, content);
-    } else {
-      fileSize = selectedFile.size;
-      result = await uploadFile(fileName, selectedFile);
-    }
-
-    const endTime = performance.now();
-    const timeTaken = (endTime - startTime) / 1000; // Convert to seconds
-    const speed = (fileSize / 1024 / 1024 / timeTaken).toFixed(2); // MB/s
-
-    const metrics = {
-      size: (fileSize / 1024).toFixed(2),
-      time: timeTaken.toFixed(2),
-      speed: isNaN(speed) ? "0.00" : speed,
-    };
-
-    setUploadMetrics(metrics);
+    const result = await uploadFile(fileName.trim(), payload);
+    const elapsed = (performance.now() - startTime) / 1000;
 
     setIsLoading(false);
 
     if (result.success) {
-      setMessage({ type: "success", text: result.data });
-
-      // Record metrics with current algorithm
-      const currentConfig = localStorage.getItem("currentAlgorithm");
-      if (currentConfig) {
-        try {
-          const config = JSON.parse(currentConfig);
-          const algoName = config.algorithm || "unknown";
-          const algorithmMetrics = JSON.parse(
-            localStorage.getItem("algorithmMetrics") || "{}",
-          );
-
-          // Store metrics for this algorithm
-          algorithmMetrics[algoName] = metrics;
-          localStorage.setItem(
-            "algorithmMetrics",
-            JSON.stringify(algorithmMetrics),
-          );
-
-          // Dispatch custom event to notify AlgorithmSelector
-          window.dispatchEvent(new Event("metricsUpdated"));
-        } catch (e) {
-          console.log("Could not record metrics");
-        }
-      }
-
-      setFileName("");
-      setContent("");
-      setSelectedFile(null);
-      setFilePreview("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      const speedMBs   = fileSize / 1024 / 1024 / elapsed;
+      setUploadMetrics({
+        name:  fileName.trim(),
+        size:  (fileSize / 1024).toFixed(2),
+        time:  elapsed.toFixed(2),
+        speed: isNaN(speedMBs) ? "0.00" : (speedMBs * 1024).toFixed(2), // KB/s
+      });
+      closePopup();
+      showToast("success", `✅ "${fileName.trim()}" uploaded successfully!`);
     } else {
-      setMessage({ type: "error", text: "Upload failed: " + result.error });
+      // HTTP 409 Conflict → duplicate
+      const errText = result.error || "";
+      if (errText.includes("already present") || errText.includes("409") || errText.includes("Conflict")) {
+        setIsLoading(false);
+        setDupPending(true);
+        showToast("warning", `⚠️ "${fileName.trim()}" already exists. Use Update to overwrite it.`, 0);
+      } else {
+        showToast("error", `Upload failed: ${errText || "Unknown error"}`);
+      }
     }
   };
 
-  const inputClass = `border p-2 w-full mb-2 rounded placeholder-opacity-70 ${
-    darkMode
-      ? "bg-neutral-900 text-neutral-100 placeholder-neutral-400 border-neutral-600"
-      : "bg-gray-200 text-gray-900 placeholder-neutral-900 border-neutral-900"
-  }`;
+  const handleUpload = () => {
+    setToast(null);
+    doUpload();
+  };
 
-  const textareaClass = `border p-2 w-full mb-2 rounded placeholder-opacity-70 resize-none ${
-    darkMode
-      ? "bg-neutral-900 text-neutral-100 placeholder-neutral-400 border-neutral-600"
-      : "bg-gray-200 text-gray-900 placeholder-neutral-900 border-neutral-900"
-  }`;
-
-  const messageClass =
-    message?.type === "success"
-      ? "bg-lime-100 border border-lime-900 text-lime-700 px-4 py-2 rounded mt-2"
-      : "bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mt-2";
-
-  const buttonClass = (color) =>
-    `${
-      isLoading
-        ? `${color}-400 cursor-not-allowed`
-        : `${color}-500 hover:${color}-600`
-    } text-white px-4 py-2 rounded transition-colors`;
+  // ── UI ─────────────────────────────────────────────────────────────────────
+  const inputCls = `w-full px-4 py-3 rounded-2xl border outline-none transition-all text-sm
+    ${darkMode
+      ? "bg-[#1e293b] border-gray-700 text-white placeholder-gray-400 focus:border-blue-500"
+      : "bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500"}`;
 
   return (
     <div
-      className={`p-4 rounded-xl shadow mb-4 ${
-        darkMode ? "border border-neutral-600" : "border border-black"
-      }`}
+      className={`relative h-[360px] rounded-3xl border overflow-hidden shadow-xl flex items-center justify-center transition-all duration-300
+        ${darkMode ? "bg-[#111827] border-gray-800" : "bg-white border-gray-200"}`}
     >
-      <h2 className="text-xl font-bold mb-2">Upload File</h2>
+      {/* ── Card face ── */}
+      {!showPopup && (
+        <div className="flex flex-col items-center justify-center text-center px-6">
+          <button onClick={() => setShowPopup(true)} className="group">
+            <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg group-hover:scale-110
+              ${darkMode ? "bg-blue-600 hover:bg-blue-500" : "bg-blue-500 hover:bg-blue-600"}`}>
+              <FiUploadCloud size={42} className="text-white" />
+            </div>
+          </button>
+          <h2 className={`mt-6 text-2xl font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>Upload File</h2>
+          <p className={`mt-2 text-sm ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+            Click the icon to add a new file
+          </p>
 
-      {/* Upload Mode Toggle */}
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => {
-            setUploadMode("text");
-            setSelectedFile(null);
-            setFilePreview("");
-          }}
-          disabled={isLoading}
-          className={`px-4 py-2 rounded transition-colors ${
-            uploadMode === "text"
-              ? "bg-blue-500 text-white"
-              : darkMode
-                ? "bg-neutral-700 text-neutral-300 hover:bg-neutral-600"
-                : "bg-gray-300 text-gray-900 hover:bg-gray-400"
-          }`}
-        >
-          Text Mode
-        </button>
-        <button
-          onClick={() => {
-            setUploadMode("file");
-            setContent("");
-          }}
-          disabled={isLoading}
-          className={`px-4 py-2 rounded transition-colors ${
-            uploadMode === "file"
-              ? "bg-blue-500 text-white"
-              : darkMode
-                ? "bg-neutral-700 text-neutral-300 hover:bg-neutral-600"
-                : "bg-gray-300 text-gray-900 hover:bg-gray-400"
-          }`}
-        >
-          File Mode
-        </button>
-      </div>
-
-      {/* Filename Input */}
-      <input
-        className={inputClass}
-        placeholder="Filename"
-        value={fileName}
-        onChange={(e) => setFileName(e.target.value)}
-        disabled={isLoading}
-      />
-
-      {/* Text Mode */}
-      {uploadMode === "text" && (
-        <textarea
-          className={textareaClass}
-          rows="4"
-          placeholder="File content"
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          disabled={isLoading}
-        />
-      )}
-
-      {/* File Mode */}
-      {uploadMode === "file" && (
-        <>
-          <input
-            ref={fileInputRef}
-            type="file"
-            onChange={handleFileSelect}
-            disabled={isLoading}
-            className={`border p-2 w-full mb-2 rounded ${
-              darkMode
-                ? "bg-neutral-900 text-neutral-100 border-neutral-600"
-                : "bg-gray-200 text-gray-900 border-neutral-900"
-            }`}
-            accept=".txt,.pdf,.docx,.xlsx,.doc,.csv,.json,text/*"
-          />
-          {selectedFile && (
-            <div
-              className={`p-2 rounded mb-2 ${
-                darkMode
-                  ? "bg-neutral-800 border border-neutral-600"
-                  : "bg-gray-100 border border-gray-300"
-              }`}
-            >
-              <p className="text-sm">
-                <span className="font-semibold">File:</span> {selectedFile.name}
-              </p>
-              <p className="text-sm">
-                <span className="font-semibold">Size:</span>{" "}
-                {(selectedFile.size / 1024).toFixed(2)} KB
-              </p>
+          {/* Last upload metrics badge */}
+          {uploadMetrics && (
+            <div className={`mt-4 px-4 py-2 rounded-2xl text-xs flex items-center gap-3 border
+              ${darkMode ? "bg-blue-900/30 border-blue-800 text-blue-300" : "bg-blue-50 border-blue-200 text-blue-700"}`}>
+              <span className="font-semibold truncate max-w-[120px]">{uploadMetrics.name}</span>
+              <span>{uploadMetrics.size} KB</span>
+              <span>{uploadMetrics.time}s</span>
+              <span>{uploadMetrics.speed} KB/s</span>
             </div>
           )}
-          {filePreview && (
-            <textarea
-              className={`${textareaClass} mb-2`}
-              rows="3"
-              readOnly
-              value={filePreview}
-              placeholder="File preview"
-            />
-          )}
-        </>
-      )}
-
-      {/* Upload Button */}
-      <button
-        onClick={handleUpload}
-        disabled={isLoading}
-        className={`bg-blue-500 hover:bg-blue-600 ${buttonClass("bg-blue")} text-white px-4 py-2 rounded transition-colors`}
-      >
-        {isLoading ? "Uploading..." : "Upload"}
-      </button>
-
-      {message && <div className={messageClass}>{message.text}</div>}
-
-      {/* Upload Metrics */}
-      {uploadMetrics && (
-        <div
-          className={`p-3 rounded mt-2 border ${
-            darkMode
-              ? "bg-neutral-800 border-neutral-600"
-              : "bg-blue-50 border-blue-200"
-          }`}
-        >
-          <h3 className="font-semibold mb-2">📊 Upload Metrics</h3>
-          <div className="grid grid-cols-3 gap-2 text-sm">
-            <div>
-              <span className="font-semibold">Size:</span> {uploadMetrics.size}{" "}
-              KB
-            </div>
-            <div>
-              <span className="font-semibold">Time:</span> {uploadMetrics.time}s
-            </div>
-            <div>
-              <span className="font-semibold">Speed:</span>{" "}
-              {uploadMetrics.speed} MB/s
-            </div>
-          </div>
         </div>
       )}
+
+      {/* ── Popup form ── */}
+      {showPopup && (
+        <div className={`absolute inset-0 overflow-y-auto p-6 flex flex-col gap-3
+          ${darkMode ? "bg-[#0f172a]" : "bg-white"}`}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between mb-1">
+            <h2 className={`text-xl font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>Upload New File</h2>
+            <button onClick={closePopup}
+              className={`p-2 rounded-xl transition ${darkMode ? "hover:bg-gray-800" : "hover:bg-gray-100"}`}>
+              <FiX size={20} className={darkMode ? "text-gray-300" : "text-gray-600"} />
+            </button>
+          </div>
+
+          {/* Mode toggle */}
+          <div className={`flex rounded-xl overflow-hidden border text-sm font-medium
+            ${darkMode ? "border-gray-700" : "border-gray-300"}`}>
+            {["text", "file"].map((m) => (
+              <button key={m} onClick={() => { setInputMode(m); setPickedFile(null); setContent(""); }}
+                className={`flex-1 py-2 transition-all ${inputMode === m
+                  ? "bg-blue-600 text-white"
+                  : darkMode ? "bg-[#1e293b] text-gray-400 hover:text-white" : "bg-gray-100 text-gray-500 hover:text-gray-800"}`}>
+                {m === "text" ? "✍️ Text" : "📁 File"}
+              </button>
+            ))}
+          </div>
+
+          {/* Filename */}
+          <input type="text" placeholder="Enter filename (e.g. notes.txt)"
+            value={fileName} onChange={(e) => setFileName(e.target.value)}
+            disabled={isLoading || inputMode === "file"}
+            className={inputCls} />
+
+          {/* Content / file picker */}
+          {inputMode === "text" ? (
+            <textarea rows={4} placeholder="Write file content…"
+              value={content} onChange={(e) => setContent(e.target.value)}
+              disabled={isLoading}
+              className={`${inputCls} resize-none`} />
+          ) : (
+            <div
+              onDrop={onDrop} onDragOver={onDragOver} onDragLeave={onDragLeave}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex flex-col items-center justify-center gap-2 py-6 rounded-2xl border-2 border-dashed cursor-pointer transition-all text-sm
+                ${isDragging
+                  ? "border-blue-500 bg-blue-500/10"
+                  : darkMode ? "border-gray-600 hover:border-blue-500 bg-[#1e293b]" : "border-gray-300 hover:border-blue-400 bg-gray-50"}`}>
+              <input ref={fileInputRef} type="file" className="hidden" onChange={onFileInputChange} />
+              {pickedFile ? (
+                <>
+                  <FiFile size={28} className="text-blue-500" />
+                  <span className={`font-medium truncate max-w-xs ${darkMode ? "text-white" : "text-gray-800"}`}>{pickedFile.name}</span>
+                  <span className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                    {(pickedFile.size / 1024).toFixed(1)} KB
+                  </span>
+                </>
+              ) : (
+                <>
+                  <FiUploadCloud size={28} className={darkMode ? "text-gray-400" : "text-gray-400"} />
+                  <span className={darkMode ? "text-gray-300" : "text-gray-600"}>
+                    Drop a file or <span className="text-blue-500 font-semibold">Browse</span>
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Duplicate warning banner */}
+          {dupPending && (
+            <div className={`flex items-start gap-2 px-4 py-3 rounded-2xl border text-sm
+              ${darkMode ? "bg-amber-900/30 border-amber-700 text-amber-300" : "bg-amber-50 border-amber-300 text-amber-800"}`}>
+              <FiAlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>This file already exists in the system. Use <strong>Update</strong> to replace its content.</span>
+            </div>
+          )}
+
+          {/* Upload button */}
+          <button onClick={handleUpload} disabled={isLoading}
+            className={`w-full py-3 rounded-2xl font-semibold transition-all duration-300 shadow-lg text-white flex items-center justify-center gap-2
+              ${isLoading ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:scale-95"}`}>
+            {isLoading ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                Uploading…
+              </>
+            ) : "Upload File"}
+          </button>
+        </div>
+      )}
+
+      {/* Toast (always visible over both states) */}
+      <Toast msg={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 }

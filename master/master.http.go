@@ -49,11 +49,11 @@ func StartMasterHttp() {
 	AlgoConfig = AlgorithmConfig{
 		CacheAlgorithm:   "lru",
 		NodeSelectorAlgo: "leastNode",
-		CacheCapacity:    100,
+		CacheCapacity:    1,
 	}
 
 	MyNodeSelector = NewLeastNodeSelector(config.ReadConfig.SlaveNodes)
-	CurrentCache = InitCache("lru", 100)
+	CurrentCache = InitCache("lru", 1)
 	Metrics.Init(AlgoConfig.CacheAlgorithm, AlgoConfig.NodeSelectorAlgo)
 
 	http.HandleFunc("/", corsMiddleware(healthCheck))

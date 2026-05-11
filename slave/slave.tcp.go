@@ -97,21 +97,27 @@ func handleIncomingMasterRequest(node config.Node, connection net.Conn) {
 			connection.Write([]byte("ACK"))
 		}
 	} else if incomingPayload.Type == "heartbeat" {
-		if node.Port == "6001" {
-			connection.Write([]byte("XYZ"))
-		} else {
-			connection.Write([]byte("ACK"))
+		connection.Write([]byte("ACK"))
+	} else {
+		parts := strings.Split(incomingPayload.Type, "@")
+		var targetHost, targetPort string
+
+		if len(parts) >= 3 {
+			// Format: transfer@host@port
+			targetHost = parts[1]
+			targetPort = parts[2]
+		} else if len(parts) == 2 {
+			// Fallback old format: transfer@port
+			targetPort = parts[1]
+			targetHost = "127.0.0.1"
 		}
-	} else if strings.HasPrefix(incomingPayload.Type, "transfer") {
-		target := strings.TrimPrefix(incomingPayload.Type, "transfer@")
-		if handleInternodeDataTransfer(target, incomingPayload.Key, node.Port) {
+
+		if handleInternodeDataTransfer(targetHost, targetPort, incomingPayload.Key, node.Port) {
 			connection.Write([]byte("ACK"))
 		} else {
 			connection.Write([]byte("NOACK"))
 		}
 
-	} else {
-		log.Println("🔴 Invalid request by master:", incomingPayload.Type, node.Port)
 	}
 }
 
@@ -177,14 +183,15 @@ func handleChunkDelete(key string, port string) error {
 	return nil
 }
 
-func handleInternodeDataTransfer(target, hash string, port string) bool {
+func handleInternodeDataTransfer(targetHost, targetPort, hash string, port string) bool {
 
 	fileChunk := handleChunkRequest(hash, port)
 	fileChunk.Hash = hash
 
-	connection, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%s", target))
+	targetAddress := fmt.Sprintf("%s:%s", targetHost, targetPort)
+	connection, err := net.Dial("tcp", targetAddress)
 	if err != nil {
-		log.Printf("🔴 [%v]: Could not connect to %v for internode transfer:", port, target)
+		log.Printf("🔴 [%v]: Could not connect to %v for internode transfer:", port, targetAddress)
 		return false
 	}
 	defer connection.Close()
@@ -193,7 +200,7 @@ func handleInternodeDataTransfer(target, hash string, port string) bool {
 	jsonData, _ := json.Marshal(payload)
 	_, err = connection.Write(jsonData)
 	if err != nil {
-		log.Printf("🔴 [%v]: Could not send to %v for internode transfer:", port, target)
+		log.Printf("🔴 [%v]: Could not send to %v for internode transfer:", port, targetAddress)
 		return false
 	}
 
@@ -202,16 +209,16 @@ func handleInternodeDataTransfer(target, hash string, port string) bool {
 	buffer := make([]byte, 256)
 	n, err := connection.Read(buffer)
 	if err != nil {
-		log.Printf("🔴 [%v]: Error reading from internode connection from %v", port, target)
+		log.Printf("🔴 [%v]: Error reading from internode connection from %v", port, targetAddress)
 		return false
 	}
 
 	ack := string(buffer[:n])
 	if ack == "ACK" {
-		log.Printf("🟢 [%v]: Positive ACK received from %v for internode transfer:", port, target)
+		log.Printf("🟢 [%v]: Positive ACK received from %v for internode transfer:", port, targetAddress)
 		return true
 	} else {
-		log.Printf("🔴 [%v]: No ACK received from %v for internode transfer:", port, target)
+		log.Printf("🔴 [%v]: No ACK received from %v for internode transfer:", port, targetAddress)
 		return false
 	}
 }
