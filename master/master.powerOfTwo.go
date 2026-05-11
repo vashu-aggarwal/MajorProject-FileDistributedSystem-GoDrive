@@ -28,8 +28,8 @@ func (p *PowerOfTwoSelector) GiveNode() config.Node {
 	n1 := p.nodes[rand.Intn(len(p.nodes))]
 	n2 := p.nodes[rand.Intn(len(p.nodes))]
 
-	load1 := getNodeLoad(n1.Port)
-	load2 := getNodeLoad(n2.Port)
+	load1 := getNodeLoad(n1.Host + ":" + n1.Port)
+	load2 := getNodeLoad(n2.Host + ":" + n2.Port)
 
 	log.Printf(
 		"[POWER-OF-TWO] Candidates: %s(load=%d), %s(load=%d)",

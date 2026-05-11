@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"godrive/pipeline"
 	"log"
+	"godrive/config"
 )
 
 type FileChunk struct {
@@ -25,7 +26,6 @@ type FileStruct struct {
 // and text-safe.
 func BreakFilesIntoChunks(incomingFile uploadedFile) FileStruct {
 	name, content := incomingFile.Name, incomingFile.Content
-	chunkSize := 128
 
 	// ── Pipeline encode (if enabled) ──────────────────────────────────────────
 	if pipeline.IsEnabled() {
@@ -39,6 +39,8 @@ func BreakFilesIntoChunks(incomingFile uploadedFile) FileStruct {
 	}
 	// ─────────────────────────────────────────────────────────────────────────
 
+	chunkSize := config.ReadConfig.Master.ChunkSize
+	// chunkSize := 4
 	var createdFile FileStruct
 	contentInBytes := []byte(content)
 	createdFile.Name = name

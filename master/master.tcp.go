@@ -61,10 +61,8 @@ func SendDataToSlave(slaveNode config.Node, chunk FileChunk) (bool, error) {
 	}
 }
 
-func RequestChunkFromSlave(slavePort string, key string) (FileChunk, error) {
+func RequestChunkFromSlave(address string, key string) (FileChunk, error) {
 
-	host := "127.0.0.1"
-	address := net.JoinHostPort(host, slavePort)
 	connection, err := net.Dial("tcp", address)
 	if err != nil {
 		log.Println("🔴 Could not connect to slave to send data:", err)
@@ -84,13 +82,13 @@ func RequestChunkFromSlave(slavePort string, key string) (FileChunk, error) {
 	buffer := make([]byte, 256)
 	n, err := connection.Read(buffer)
 	if err != nil {
-		log.Println("🔴 No response received, Connection Timed Out:", slavePort)
+		log.Println("🔴 No response received, Connection Timed Out:", address)
 		return FileChunk{}, errors.New("No response from slave")
 	}
 	var incomingFileChunk FileChunk
 	err = json.Unmarshal(buffer[:n], &incomingFileChunk)
 	if err != nil {
-		log.Println("🔴 Error unmarshaling data from", slavePort)
+		log.Println("🔴 Error unmarshaling data from", address)
 	}
 	if incomingFileChunk.Index == -1 {
 		return incomingFileChunk, errors.New("Chunk not found")
@@ -173,9 +171,9 @@ func SendHeartBeatToSlave(slaveNode config.Node) bool {
 	}
 }
 
-func SendInterNodeTransferRequest(fromPort string, toPort string, chunkHash string) bool {
+func SendInterNodeTransferRequest(fromAddress string, toAddress string, chunkHash string) bool {
 
-	connection, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%s", fromPort))
+	connection, err := net.Dial("tcp", fromAddress)
 
 	if err != nil {
 		log.Println("Could not connect to slave to send internode request:", err)
@@ -183,7 +181,8 @@ func SendInterNodeTransferRequest(fromPort string, toPort string, chunkHash stri
 	}
 	defer connection.Close()
 
-	payload := TcpPayload{Type: fmt.Sprintf("transfer@%v", toPort), Key: chunkHash}
+	host, port, _ := net.SplitHostPort(toAddress)
+	payload := TcpPayload{Type: fmt.Sprintf("transfer@%s@%s", host, port), Key: chunkHash}
 	jsonData, _ := json.Marshal(payload)
 	_, err = connection.Write(jsonData)
 	if err != nil {
@@ -202,7 +201,7 @@ func SendInterNodeTransferRequest(fromPort string, toPort string, chunkHash stri
 
 	ack := string(buffer[:n])
 	if ack == "ACK" {
-		log.Printf("🟢 InterNode transfer from %s to %s successful", fromPort, toPort)
+		log.Printf("🟢 InterNode transfer from %s to %s successful", fromAddress, toAddress)
 		return true
 	} else {
 		log.Println("🔴 InterNode transfer unsuccessful")

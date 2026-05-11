@@ -11,15 +11,15 @@ func StartHeartBeat() {
 	log.Println("Heartbeat service initiated!")
 	count := 1
 	for {
-		time.Sleep(5 * time.Second)
+		time.Sleep(10 * time.Second)
 		log.Printf("---------------- Heartbeat: %v ----------------", count)
 		for _, slaveNode := range config.ReadConfig.SlaveNodes {
 			heartbeat := SendHeartBeatToSlave(slaveNode)
 			if !heartbeat {
-				log.Printf("🔴 Master <=xxxxxxxx= %s", slaveNode.Port)
-				go removeDeadNodeFromSlaveList(slaveNode)
+				log.Printf("🔴 Master <=xxxxxxxx= %s:%s", slaveNode.Host, slaveNode.Port)
+				go removeDeadNodeFromSlaveList(slaveNode.Host, slaveNode.Port)
 			} else {
-				log.Printf("🟢 Master <========== %s", slaveNode.Port)
+				log.Printf("🟢 Master <========== %s:%s", slaveNode.Host, slaveNode.Port)
 			}
 		}
 		log.Println("-------------------------------------------------")
@@ -27,98 +27,100 @@ func StartHeartBeat() {
 	}
 }
 
-func removeDeadNodeFromSlaveList(deadNode config.Node) {
-	deleteIndex := -1
+func removeDeadNodeFromSlaveList(host string, port string) {
+	deleteIndex, deleteNode := -1, config.Node{}
 	for index, node := range config.ReadConfig.SlaveNodes {
-		if node.Port == deadNode.Port && node.Host == deadNode.Host {
+		if node.Host == host && node.Port == port {
 			deleteIndex = index
+			deleteNode = node
 			break
 		}
 	}
+
 	if deleteIndex == -1 {
-		log.Printf("Node %s:%s not found in slave list", deadNode.Host, deadNode.Port)
+		log.Printf("⚠️  Node %s:%s not found in SlaveNodes", host, port)
 		return
 	}
+
 	config.ReadConfig.SlaveNodes = append(config.ReadConfig.SlaveNodes[:deleteIndex], config.ReadConfig.SlaveNodes[deleteIndex+1:]...)
-	for backupIndex, backupNode := range config.ReadConfig.BackupNodes {
-		if heartbeat := SendHeartBeatToSlave(backupNode); heartbeat {
-			handleDataTransfer(deadNode, backupNode)
+
+	for bIndex, bNode := range config.ReadConfig.BackupNodes {
+		if heartbeat := SendHeartBeatToSlave(bNode); heartbeat {
+			handleDataTransfer(fmt.Sprintf("%s:%s", host, port), fmt.Sprintf("%s:%s", bNode.Host, bNode.Port))
+
+			// Remove promoted node from BackupNodes
+			config.ReadConfig.BackupNodes = append(config.ReadConfig.BackupNodes[:bIndex], config.ReadConfig.BackupNodes[bIndex+1:]...)
+
 			// Add dead node to BackupNodes
-			config.ReadConfig.BackupNodes = append(config.ReadConfig.BackupNodes, deadNode)
-			// Remove promoted backup node from BackupNodes and add to SlaveNodes
-			config.ReadConfig.BackupNodes = append(config.ReadConfig.BackupNodes[:backupIndex], config.ReadConfig.BackupNodes[backupIndex+1:]...)
-			config.ReadConfig.SlaveNodes = append(config.ReadConfig.SlaveNodes, backupNode)
+			config.ReadConfig.BackupNodes = append(config.ReadConfig.BackupNodes, deleteNode)
+
+			// Add promoted node to SlaveNodes
+			config.ReadConfig.SlaveNodes = append(config.ReadConfig.SlaveNodes, bNode)
+
+			// Update the active node selector with the new slave list
+			algoConfigMu.Lock()
+			MyNodeSelector = InitNodeSelector(AlgoConfig.NodeSelectorAlgo, config.ReadConfig.SlaveNodes)
+			algoConfigMu.Unlock()
+
 			fmt.Println("\n-------------------------------------------------------------------------------------")
 			fmt.Println("Slave Node List:\n", config.ReadConfig.SlaveNodes)
 			fmt.Println("\nBackup Node List:", config.ReadConfig.BackupNodes, "")
+
 			fmt.Print("-------------------------------------------------------------------------------------\n\n")
 			break
 		}
 	}
 }
-func handleDataTransfer(fromNode config.Node, toNode config.Node) {
 
-	log.Printf("\n\n Transferring data: [🟥]%s:%s ---> %s:%s[🟩]\n\n", fromNode.Host, fromNode.Port, toNode.Host, toNode.Port)
+func handleDataTransfer(from string, to string) {
+
+	log.Printf("\n\n Transferring data: [🟥]%v ---> %v[🟩]\n\n", from, to)
 	metadata.mu.Lock()
 	defer metadata.mu.Unlock()
 
 	success := true
-	fromNodeID := fmt.Sprintf("%s:%s", fromNode.Host, fromNode.Port)
-	toNodeID := fmt.Sprintf("%s:%s", toNode.Host, toNode.Port)
 
 	for _, chunkMap := range metadata.Chunks {
 		for _, chunkInfo := range chunkMap {
 			contains := false
-			sourceNode := ""
+			sourceNode := from
 			for _, node := range chunkInfo.SlaveNodeList {
-				if node == fromNodeID {
+				if node == from {
 					contains = true
 				} else {
 					sourceNode = node
 				}
 			}
-			if contains && sourceNode != toNodeID && sourceNode != fromNodeID {
-				// Extract port from sourceNode (format: "host:port")
-				sourcePort := ""
-				if len(sourceNode) > 0 {
-					// Parse host:port format
-					parts := len(sourceNode)
-					// Find the last colon to get the port
-					for i := parts - 1; i >= 0; i-- {
-						if sourceNode[i] == ':' {
-							sourcePort = sourceNode[i+1:]
-							break
-						}
-					}
-				}
-				if sourcePort != "" {
-					success = success && SendInterNodeTransferRequest(sourcePort, toNode.Port, chunkInfo.ChunkHash)
-				}
+			if contains && sourceNode != to && sourceNode != from {
+				log.Printf("📤 Master: Requesting internode transfer of chunk %s from %s to %s", chunkInfo.ChunkHash, sourceNode, to)
+				success = success && SendInterNodeTransferRequest(sourceNode, to, chunkInfo.ChunkHash)
+			} else if contains {
+				log.Printf("⚠️  Master: No alternative replica found for chunk %s. Node %s was the only known holder.", chunkInfo.ChunkHash, from)
 			}
 		}
 	}
 	if !success {
-		log.Printf("🔴 InterNode chunk transfer failed from %s:%s to %s:%s\n", fromNode.Host, fromNode.Port, toNode.Host, toNode.Port)
+		log.Printf("🔴 InterNode chunk transfer failed from %s to %s\n", from, to)
 	} else {
-		log.Printf("🟢 InterNode chunk transfer successful from %s:%s to %s:%s\n", fromNode.Host, fromNode.Port, toNode.Host, toNode.Port)
+		log.Printf("🟢 InterNode chunk transfer successful from %s to %s\n", from, to)
 	}
 	for _, chunkMap := range metadata.Chunks {
 		for _, chunkInfo := range chunkMap {
 			newList := []string{}
 			replaced := false
-			for _, nodeID := range chunkInfo.SlaveNodeList {
-				if nodeID == fromNodeID {
+			for _, nodeAddress := range chunkInfo.SlaveNodeList {
+				if nodeAddress == from {
 					replaced = true
 					continue
 				}
-				newList = append(newList, nodeID)
+				newList = append(newList, nodeAddress)
 			}
 			if replaced {
-				newList = append(newList, toNodeID)
+				newList = append(newList, to)
 				chunkInfo.SlaveNodeList = newList
 			}
 		}
 	}
 	SaveMetaDataToFile()
-	log.Printf("✅ Metadata updated: replaced %s:%s with %s:%s", fromNode.Host, fromNode.Port, toNode.Host, toNode.Port)
+	log.Printf("✅ Metadata updated: replaced %s with %s", from, to)
 }

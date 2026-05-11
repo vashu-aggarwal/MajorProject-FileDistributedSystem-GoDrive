@@ -1,8 +1,10 @@
 package master
 
 import (
+	"fmt"
 	"godrive/config"
 	"log"
+	"net"
 	"sync"
 )
 
@@ -23,11 +25,11 @@ func DistriButeChunksToNode(file FileStruct) bool {
 				selectedNode := MyNodeSelector.GiveNode()
 				success, _ := SendDataToSlave(selectedNode, chunk)
 				if success {
-					Metrics.RecordNodeRequest(selectedNode.Port, len(chunk.Data))
+					// Metrics.RecordNodeRequest(selectedNode.Port, len(chunk.Data))
 					mu.Lock()
 					chunkSuccessMap[index] += 1
 					mu.Unlock()
-					addChunkInfoToMetaData(file.Name, chunk.Hash, chunk.Index, selectedNode.Port)
+					addChunkInfoToMetaData(file.Name, chunk.Hash, chunk.Index, fmt.Sprintf("%s:%s", selectedNode.Host, selectedNode.Port))
 				}
 			}(ind, chunk)
 		}
@@ -84,14 +86,15 @@ func deleteChunkFromSlaves(chunkInfo *ChunkInfo, ackChan chan bool, wg *sync.Wai
 	chunkHash := chunkInfo.ChunkHash
 	allDeleted := true
 
-	for _, port := range chunkInfo.SlaveNodeList {
-		slaveNode := config.Node{Host: "127.0.0.1", Port: port}
+	for _, address := range chunkInfo.SlaveNodeList {
+		host, port, _ := net.SplitHostPort(address)
+		slaveNode := config.Node{Host: host, Port: port}
 		err := RequestDeleteFromSlave(slaveNode, chunkHash)
 		if err != nil {
-			log.Printf("Failed to delete chunk %s from node %s: %v\n", chunkHash, port, err)
+			log.Printf("Failed to delete chunk %s from node %s: %v\n", chunkHash, address, err)
 			allDeleted = false
 		} else {
-			log.Printf("Deleted chunk %s from node %s\n", chunkHash, port)
+			log.Printf("Deleted chunk %s from node %s\n", chunkHash, address)
 		}
 	}
 

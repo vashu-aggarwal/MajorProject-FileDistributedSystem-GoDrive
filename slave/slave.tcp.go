@@ -29,7 +29,7 @@ func startSlaveTcp(node config.Node, role string) {
 	listener, err := net.Listen("tcp", fullAddress)
 
 	if err != nil {
-		log.Println("🔴   ", node.Port)
+		log.Println("🔴   Couldnt start slave on port: ", node.Port)
 		return
 	}
 
@@ -98,7 +98,8 @@ func handleIncomingMasterRequest(node config.Node, connection net.Conn) {
 		}
 	} else if incomingPayload.Type == "heartbeat" {
 		connection.Write([]byte("ACK"))
-	} else {
+	} else if strings.HasPrefix(incomingPayload.Type, "transfer@") {
+		log.Printf("📥 [%v]: Received InterNode Transfer request: %s", node.Port, incomingPayload.Type)
 		parts := strings.Split(incomingPayload.Type, "@")
 		var targetHost, targetPort string
 
@@ -112,9 +113,12 @@ func handleIncomingMasterRequest(node config.Node, connection net.Conn) {
 			targetHost = "127.0.0.1"
 		}
 
+		log.Printf("🚀 [%v]: Initiating transfer of chunk %s to %s:%s", node.Port, incomingPayload.Key, targetHost, targetPort)
 		if handleInternodeDataTransfer(targetHost, targetPort, incomingPayload.Key, node.Port) {
+			log.Printf("✅ [%v]: InterNode Transfer successful", node.Port)
 			connection.Write([]byte("ACK"))
 		} else {
+			log.Printf("❌ [%v]: InterNode Transfer failed", node.Port)
 			connection.Write([]byte("NOACK"))
 		}
 
